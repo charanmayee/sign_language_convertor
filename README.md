@@ -42,18 +42,23 @@ Camera → Hand Detection → Preprocessing → CNN Model → Prediction → Tex
 ```
 SignLanguageProject/
 │
-├── dataset/              # Training images
+├── dataset/              
 │   ├── A/
 │   ├── B/
 │   └── ...
 │
-├── train.py              # Model training script
-├── app.py                # Real-time prediction
-├── hand_detection.py     # Hand detection test
-├── sign_model.h5         # Trained model
-├── requirements.txt      # Dependencies
-└── README.md
-```
+├── templates/            ← ADD THIS
+│   └── index.html
+│
+├── static/               ← ADD THIS
+│   └── style.css
+│
+├── train.py              
+├── app.py                
+├── hand_detection.py     
+├── sign_model.h5         
+├── requirements.txt      
+└── README.md             
 
 ---
 
