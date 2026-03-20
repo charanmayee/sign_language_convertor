@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SignBridge — Real-Time Sign Language Converter</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c10;
+    --surface: #0e1520;
+    --surface2: #141e2e;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --text: #e8f0fe;
+    --muted: #6b7fa3;
+    --border: rgba(0,229,255,0.12);
+    --glow: 0 0 40px rgba(0,229,255,0.18);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    overflow-x: hidden;
+    line-height: 1.7;
+  }
+
+  /* Grid texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.025) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Ambient blobs */
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .blob-1 {
+    width: 600px; height: 600px;
+    background: rgba(124,58,237,0.12);
+    top: -200px; right: -200px;
+    animation: drift 18s ease-in-out infinite alternate;
+  }
+  .blob-2 {
+    width: 500px; height: 500px;
+    background: rgba(0,229,255,0.07);
+    bottom: 20%; left: -150px;
+    animation: drift 24s ease-in-out infinite alternate-reverse;
+  }
+  .blob-3 {
+    width: 400px; height: 400px;
+    background: rgba(16,185,129,0.06);
+    bottom: -100px; right: 20%;
+    animation: drift 20s ease-in-out infinite alternate;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(40px, 30px) scale(1.08); }
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 120px 40px 80px;
+    text-align: center;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(0,229,255,0.06);
+    margin-bottom: 32px;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .badge-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s ease infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .hero-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(48px, 9vw, 112px);
+    font-weight: 800;
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+    margin-bottom: 8px;
+    animation: fadeUp 0.6s 0.1s ease both;
+  }
+
+  .hero-title .line-1 { display: block; color: var(--text); }
+  .hero-title .line-2 {
+    display: block;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-subtitle {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: clamp(18px, 2.5vw, 26px);
+    color: var(--muted);
+    max-width: 600px;
+    margin: 28px auto 48px;
+    animation: fadeUp 0.6s 0.2s ease both;
+  }
+
+  .hero-pipeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-bottom: 64px;
+    animation: fadeUp 0.6s 0.3s ease both;
+  }
+
+  .pipe-step {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .pipe-node {
+    padding: 10px 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    white-space: nowrap;
+    transition: all 0.3s;
+    cursor: default;
+  }
+
+  .pipe-node:hover {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.08);
+    box-shadow: var(--glow);
+    transform: translateY(-2px);
+  }
+
+  .pipe-arrow {
+    color: var(--muted);
+    font-size: 18px;
+    padding: 0 4px;
+  }
+
+  /* ─── STATS BAR ─── */
+  .stats-bar {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    gap: 1px;
+    padding: 0 40px 100px;
+    animation: fadeUp 0.6s 0.4s ease both;
+  }
+
+  .stat-card {
+    flex: 1;
+    max-width: 220px;
+    padding: 32px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .stat-card:first-child { border-radius: 16px 0 0 16px; }
+  .stat-card:last-child { border-radius: 0 16px 16px 0; }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 42px;
+    font-weight: 800;
+    color: var(--accent);
+    display: block;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── SECTION COMMONS ─── */
+  section {
+    position: relative;
+    z-index: 1;
+    padding: 80px 40px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-label {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-label::before {
+    content: '';
+    width: 32px; height: 1px;
+    background: var(--accent);
+  }
+
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(32px, 5vw, 56px);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 48px;
+  }
+
+  /* ─── FEATURES ─── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2px;
+  }
+
+  .feature-card {
+    padding: 36px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    transition: all 0.4s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.4s;
+  }
+
+  .feature-card:hover::before { transform: scaleX(1); }
+  .feature-card:hover { background: var(--surface2); transform: translateY(-4px); }
+
+  .feature-icon {
+    font-size: 32px;
+    margin-bottom: 20px;
+    display: block;
+  }
+
+  .feature-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  .feature-desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  /* ─── TECH STACK ─── */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .tech-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 28px 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    transition: all 0.3s;
+    cursor: default;
+  }
+
+  .tech-pill:hover {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.05);
+    box-shadow: 0 0 24px rgba(0,229,255,0.1);
+  }
+
+  .tech-emoji { font-size: 28px; }
+
+  .tech-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .tech-role {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: 0.05em;
+  }
+
+  /* ─── ARCHITECTURE ─── */
+  .arch-wrapper {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 48px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .arch-nodes {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .arch-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .arch-box {
+    width: 110px;
+    padding: 18px 10px;
+    border-radius: 12px;
+    text-align: center;
+    border: 1px solid;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    transition: all 0.3s;
+    cursor: default;
+  }
+
+  .arch-box:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 30px currentColor;
+  }
+
+  .arch-box.camera { border-color: #60a5fa; color: #60a5fa; background: rgba(96,165,250,0.08); }
+  .arch-box.detection { border-color: #a78bfa; color: #a78bfa; background: rgba(167,139,250,0.08); }
+  .arch-box.preprocess { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.08); }
+  .arch-box.cnn { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,0.08); }
+  .arch-box.predict { border-color: #fb923c; color: #fb923c; background: rgba(251,146,60,0.08); }
+  .arch-box.text { border-color: #f472b6; color: #f472b6; background: rgba(244,114,182,0.08); }
+  .arch-box.speech { border-color: #a3e635; color: #a3e635; background: rgba(163,230,53,0.08); }
+
+  .arch-label { font-size: 10px; color: var(--muted); text-align: center; }
+
+  .arch-connector {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-width: 20px;
+  }
+
+  .arch-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    position: relative;
+  }
+
+  .arch-line::after {
+    content: '▶';
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10px;
+    color: var(--accent);
+  }
+
+  /* ─── INSTALL ─── */
+  .install-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .install-step {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .step-num {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    display: grid;
+    place-items: center;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .step-content { padding-top: 8px; }
+
+  .step-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .code-block {
+    background: #010508;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--accent3);
+    position: relative;
+    overflow-x: auto;
+  }
+
+  .code-block .comment { color: #3a4a5a; }
+  .code-block .cmd { color: var(--accent); }
+
+  /* ─── CONTROLS ─── */
+  .controls-grid {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .control-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    flex: 1;
+    min-width: 220px;
+    transition: all 0.3s;
+  }
+
+  .control-card:hover {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.04);
+  }
+
+  .kbd {
+    padding: 8px 16px;
+    background: var(--surface2);
+    border: 1px solid var(--muted);
+    border-bottom-width: 3px;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--accent);
+    min-width: 56px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .control-desc {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  /* ─── FUTURE ─── */
+  .future-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+
+  .future-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: all 0.3s;
+  }
+
+  .future-item:hover {
+    border-color: rgba(124,58,237,0.4);
+    transform: translateX(4px);
+  }
+
+  .future-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent2);
+    margin-top: 6px;
+    flex-shrink: 0;
+    box-shadow: 0 0 10px var(--accent2);
+  }
+
+  .future-text {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .future-text strong { color: var(--text); font-weight: 500; }
+
+  /* ─── FOOTER ─── */
+  footer {
+    position: relative;
+    z-index: 1;
+    border-top: 1px solid var(--border);
+    padding: 60px 40px;
+    text-align: center;
+  }
+
+  .footer-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+  }
+
+  .footer-sub {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+
+  .footer-ack {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 40px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+  }
+
+  .ack-item { display: flex; align-items: center; gap: 8px; }
+  .ack-item span { color: var(--accent); }
+
+  /* ─── DIVIDER ─── */
+  .divider {
+    max-width: 1100px;
+    margin: 0 auto;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+  }
+
+  /* Scroll reveals */
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+
+<!-- HERO -->
+<div class="hero">
+  <div>
+    <div class="hero-badge">
+      <div class="badge-dot"></div>
+      Real-Time AI System · Computer Vision · Deep Learning
+    </div>
+    <h1 class="hero-title">
+      <span class="line-1">Sign</span>
+      <span class="line-2">Bridge</span>
+    </h1>
+    <p class="hero-subtitle">Bridging the silence — real-time hand gesture recognition that turns sign language into text and speech.</p>
+
+    <div class="hero-pipeline">
+      <div class="pipe-step">
+        <div class="pipe-node">📷 Camera</div>
+        <div class="pipe-arrow">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-node">✋ Hand Detection</div>
+        <div class="pipe-arrow">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-node">⚙️ Preprocessing</div>
+        <div class="pipe-arrow">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-node">🧠 CNN Model</div>
+        <div class="pipe-arrow">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-node">🔮 Prediction</div>
+        <div class="pipe-arrow">→</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-node">📝 Text</div>
+        <div class="pipe-arrow">→</div>
+      </div>
+      <div class="pipe-node">🔊 Speech</div>
+    </div>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-bar">
+  <div class="stat-card">
+    <span class="stat-value">90–95%</span>
+    <div class="stat-label">Expected Accuracy</div>
+  </div>
+  <div class="stat-card">
+    <span class="stat-value">26</span>
+    <div class="stat-label">Gesture Classes (A–Z)</div>
+  </div>
+  <div class="stat-card">
+    <span class="stat-value">Live</span>
+    <div class="stat-label">Real-Time Processing</div>
+  </div>
+  <div class="stat-card">
+    <span class="stat-value">CNN</span>
+    <div class="stat-label">Deep Learning Backbone</div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- FEATURES -->
+<section class="reveal">
+  <div class="section-label">Core Capabilities</div>
+  <h2 class="section-title">What it does</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <span class="feature-icon">✋</span>
+      <div class="feature-name">Real-Time Hand Detection</div>
+      <p class="feature-desc">MediaPipe tracks 21 hand landmarks per frame at 30fps+, enabling fluid, low-latency gesture capture through any standard webcam.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🧠</span>
+      <div class="feature-name">CNN Gesture Recognition</div>
+      <p class="feature-desc">A Convolutional Neural Network trained on preprocessed hand images classifies A–Z sign language alphabets with up to 95% accuracy.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">📝</span>
+      <div class="feature-name">Text Output</div>
+      <p class="feature-desc">Recognized gestures are converted to readable characters in real-time, building words and sentences on screen as you sign.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🔊</span>
+      <div class="feature-name">Text-to-Speech</div>
+      <p class="feature-desc">pyttsx3 converts accumulated text into audible speech on demand — press S and hear your signs spoken aloud.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">♿</span>
+      <div class="feature-name">Accessibility First</div>
+      <p class="feature-desc">Designed as a low-cost assistive tool requiring only a standard webcam — no specialized hardware or proprietary devices needed.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🔌</span>
+      <div class="feature-name">Modular Architecture</div>
+      <p class="feature-desc">Cleanly separated modules for detection, training, and inference — easy to extend with new gesture sets or deploy to different platforms.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- TECH STACK -->
+<section class="reveal">
+  <div class="section-label">Stack</div>
+  <h2 class="section-title">Technologies used</h2>
+  <div class="tech-grid">
+    <div class="tech-pill">
+      <div class="tech-emoji">🐍</div>
+      <div class="tech-name">Python</div>
+      <div class="tech-role">Core language</div>
+    </div>
+    <div class="tech-pill">
+      <div class="tech-emoji">📷</div>
+      <div class="tech-name">OpenCV</div>
+      <div class="tech-role">Image processing & webcam</div>
+    </div>
+    <div class="tech-pill">
+      <div class="tech-emoji">✋</div>
+      <div class="tech-name">MediaPipe</div>
+      <div class="tech-role">Hand landmark tracking</div>
+    </div>
+    <div class="tech-pill">
+      <div class="tech-emoji">🔥</div>
+      <div class="tech-name">TensorFlow</div>
+      <div class="tech-role">Deep learning framework</div>
+    </div>
+    <div class="tech-pill">
+      <div class="tech-emoji">🏗️</div>
+      <div class="tech-name">Keras</div>
+      <div class="tech-role">CNN model building</div>
+    </div>
+    <div class="tech-pill">
+      <div class="tech-emoji">🔢</div>
+      <div class="tech-name">NumPy</div>
+      <div class="tech-role">Numerical operations</div>
+    </div>
+    <div class="tech-pill">
+      <div class="tech-emoji">🔊</div>
+      <div class="tech-name">pyttsx3</div>
+      <div class="tech-role">Text-to-speech engine</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ARCHITECTURE -->
+<section class="reveal">
+  <div class="section-label">Pipeline</div>
+  <h2 class="section-title">System architecture</h2>
+  <div class="arch-wrapper">
+    <div class="arch-nodes">
+      <div class="arch-node">
+        <div class="arch-box camera">📷<br>Camera</div>
+        <div class="arch-label">Webcam<br>Input</div>
+      </div>
+      <div class="arch-connector"><div class="arch-line"></div></div>
+      <div class="arch-node">
+        <div class="arch-box detection">✋<br>Detection</div>
+        <div class="arch-label">MediaPipe<br>Landmarks</div>
+      </div>
+      <div class="arch-connector"><div class="arch-line"></div></div>
+      <div class="arch-node">
+        <div class="arch-box preprocess">⚙️<br>Preprocess</div>
+        <div class="arch-label">Resize &<br>Normalize</div>
+      </div>
+      <div class="arch-connector"><div class="arch-line"></div></div>
+      <div class="arch-node">
+        <div class="arch-box cnn">🧠<br>CNN</div>
+        <div class="arch-label">sign_model<br>.h5</div>
+      </div>
+      <div class="arch-connector"><div class="arch-line"></div></div>
+      <div class="arch-node">
+        <div class="arch-box predict">🎯<br>Predict</div>
+        <div class="arch-label">Class<br>Label</div>
+      </div>
+      <div class="arch-connector"><div class="arch-line"></div></div>
+      <div class="arch-node">
+        <div class="arch-box text">📝<br>Text</div>
+        <div class="arch-label">Screen<br>Display</div>
+      </div>
+      <div class="arch-connector"><div class="arch-line"></div></div>
+      <div class="arch-node">
+        <div class="arch-box speech">🔊<br>Speech</div>
+        <div class="arch-label">pyttsx3<br>Audio</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- INSTALLATION -->
+<section class="reveal">
+  <div class="section-label">Setup</div>
+  <h2 class="section-title">Get started</h2>
+  <div class="install-steps">
+    <div class="install-step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">Clone the repository</div>
+        <div class="code-block"><span class="cmd">git clone</span> https://github.com/your-username/sign-language-project.git
+<span class="cmd">cd</span> sign-language-project</div>
+      </div>
+    </div>
+    <div class="install-step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">Create virtual environment</div>
+        <div class="code-block"><span class="cmd">python -m venv</span> venv
+venv\Scripts\<span class="cmd">activate</span>   <span class="comment"># Windows</span>
+<span class="comment"># source venv/bin/activate  # macOS / Linux</span></div>
+      </div>
+    </div>
+    <div class="install-step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">Install dependencies</div>
+        <div class="code-block"><span class="cmd">pip install</span> -r requirements.txt</div>
+      </div>
+    </div>
+    <div class="install-step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-title">Train the model</div>
+        <div class="code-block"><span class="cmd">python</span> train.py   <span class="comment"># Trains CNN and saves sign_model.h5</span></div>
+      </div>
+    </div>
+    <div class="install-step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <div class="step-title">Run real-time detection</div>
+        <div class="code-block"><span class="cmd">python</span> app.py   <span class="comment"># Starts webcam + live gesture recognition</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- CONTROLS -->
+<section class="reveal">
+  <div class="section-label">Controls</div>
+  <h2 class="section-title">Keyboard shortcuts</h2>
+  <div class="controls-grid">
+    <div class="control-card">
+      <div class="kbd">S</div>
+      <div class="control-desc">Convert accumulated text to speech via pyttsx3</div>
+    </div>
+    <div class="control-card">
+      <div class="kbd">C</div>
+      <div class="control-desc">Clear the current text buffer and start fresh</div>
+    </div>
+    <div class="control-card">
+      <div class="kbd">ESC</div>
+      <div class="control-desc">Exit the application and close webcam stream</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- FUTURE -->
+<section class="reveal">
+  <div class="section-label">Roadmap</div>
+  <h2 class="section-title">Future enhancements</h2>
+  <div class="future-list">
+    <div class="future-item">
+      <div class="future-dot"></div>
+      <div class="future-text"><strong>Word & Sentence Recognition</strong><br>Move beyond single alphabets to detect full words and phrases.</div>
+    </div>
+    <div class="future-item">
+      <div class="future-dot"></div>
+      <div class="future-text"><strong>LSTM for Dynamic Gestures</strong><br>Use recurrent networks to handle time-based, moving gestures.</div>
+    </div>
+    <div class="future-item">
+      <div class="future-dot"></div>
+      <div class="future-text"><strong>Web & Mobile Deployment</strong><br>Package as a React/Flutter app for broader accessibility.</div>
+    </div>
+    <div class="future-item">
+      <div class="future-dot"></div>
+      <div class="future-text"><strong>Multi-Language Sign Support</strong><br>Extend to ISL, BSL, and other international sign systems.</div>
+    </div>
+    <div class="future-item">
+      <div class="future-dot"></div>
+      <div class="future-text"><strong>Larger Datasets & Higher Accuracy</strong><br>Crowdsourced data collection to push accuracy above 97%.</div>
+    </div>
+    <div class="future-item">
+      <div class="future-dot"></div>
+      <div class="future-text"><strong>Healthcare Integration</strong><br>Deploy in hospitals and public services as communication aids.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- FOOTER -->
+<footer class="reveal">
+  <div class="footer-title">SignBridge</div>
+  <div class="footer-sub">B.Tech Final Year Project · Real-Time Sign Language Conversion System</div>
+  <p style="font-size:13px; color: var(--muted); max-width: 560px; margin: 0 auto; line-height:1.8;">
+    This project demonstrates how <em style="color:var(--text)">Artificial Intelligence and Computer Vision</em> can bridge communication gaps for hearing-impaired individuals — a practical, scalable, and low-cost assistive technology built with modern deep learning.
+  </p>
+  <div class="footer-ack">
+    <div class="ack-item"><span>✦</span> MediaPipe by Google</div>
+    <div class="ack-item"><span>✦</span> TensorFlow Team</div>
+    <div class="ack-item"><span>✦</span> Open-Source Community</div>
+    <div class="ack-item"><span>✦</span> Public Gesture Datasets</div>
+  </div>
+</footer>
+
+<script>
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
